@@ -17,13 +17,23 @@ class UserCreate(BaseModel):
 def root():
     return {"message": "FinCore API running..."}
 
+
+# Helper func to find user
+def find_user(user_id: int):
+    for user in users_db:
+        if user["id"] == user_id:
+            return user
+    return None
+
+
 # [POST] - Create User
 @app.post("/users")
 def create_user(user: UserCreate):
     user_data = user.model_dump()
-    user_data["id"] = len(user_data) + 1
+    user_data["id"] = len(users_db) + 1
     users_db.append(user_data)
     return user_data
+
 
 # [GET] Users
 @app.get("/users")
@@ -37,10 +47,3 @@ def get_user(user_id: int):
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return user
-
-# Helper func to find user
-def find_user(user_id: int):
-    for user in users_db:
-        if user["id"] == user_id:
-            return user
-    return None
