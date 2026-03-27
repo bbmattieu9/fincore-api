@@ -7,6 +7,7 @@ app = FastAPI()
 
 users_db = []
 accounts_db = []
+transactions_db = []
 
 # Schemas
 class UserCreate(BaseModel):
@@ -18,6 +19,12 @@ class AccountCreate(BaseModel):
     user_id: int
     account_type: str
     balance: float = 0.0
+
+class TransactionCreate(BaseModel):
+    account_id: int
+    type: str
+    amount: float
+    description: str | None = None
 
 
 # [GET] Root route
@@ -46,6 +53,14 @@ def find_account(account_id: int):
     for account in accounts_db:
         if account["id"] == account_id:
             return account
+    return None
+
+
+# Helper func to find Transaction by ID
+def find_transaction(tx_id: int):
+    for transaction in transactions_db:
+        if transaction["id"] == tx_id:
+            return transaction
     return None
 
  ######### Enf of Helper funcs ###################
@@ -106,3 +121,43 @@ def get_account(account_id: int):
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
     return account
+
+
+# Transactions Endpoints -----------------------------------------
+
+# [GET] Perform a Transaction
+@app.post("/transactions")
+def create_transaction(tx: TransactionCreate):
+    account = find_account(tx.account_id)
+    if not account:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+
+    if tx.type == "debit":
+        if tx["balance"] < tx.amount:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Insufficient balance")
+        account["balance"] -= tx["amount"]
+
+    elif tx.type == "credit":
+        account["balance"] += tx["amount"]
+
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid transaction type")
+    tx_data = tx.model_dump()
+    tx_data["id"] = len(transactions_db) + 1
+    transactions_db.append(tx_data)
+    return tx_data
+
+# [GET] Transactions
+@app.get("/transactions")
+def get_transactions():
+    return transactions_db
+
+
+
+# [GET] Transaction by ID
+@app.get("/transactions/{tx_id}")
+def get_transaction(tx_id: int):
+    transaction = find_transaction(tx_id)
+    if not transaction:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+    return transaction
