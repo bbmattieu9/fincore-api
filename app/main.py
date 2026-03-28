@@ -27,6 +27,11 @@ class TransactionCreate(BaseModel):
     description: str | None = None
 
 
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+
 # [GET] Root route
 @app.get("/")
 def root():
@@ -161,3 +166,14 @@ def get_transaction(tx_id: int):
     if not transaction:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
     return transaction
+
+
+# [POST]
+@app.post("/users")
+def create_user(user: UserCreate):
+    user_data = user.model_dump()
+    user_data["id"] = len(users_db) + 1
+    user_data["password"] = pwd_context.hash(user.password)
+
+    users_db.append(user_data)
+    return user_data
