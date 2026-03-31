@@ -92,8 +92,8 @@ def create_user(user: UserCreate):
 
 
 @app.get("/users")
-def get_users():
-    return users_db
+def get_users(limit: int = 10, skip: int = 0):
+    return users_db[skip: skip + limit]
 
 
 @app.get("/users/{user_id}")
@@ -134,8 +134,15 @@ def create_account(account: AccountCreate, current_user: dict = Depends(get_curr
 
 
 @app.get("/accounts")
-def get_accounts(current_user: dict = Depends(get_current_user)):
-    return accounts_db
+def get_accounts(
+        user_id: int | None = None,
+        limit: inot = 10,
+        skip: int = 0,
+        current_user: dict = Depends(get_current_user)):
+    filtered_accounts = accounts_db
+    if user_id:
+        filtered_accounts =[ acc for acc in accounts_db if acc["user_id"] == user_id]
+    return filtered_accounts[skip: skip + limit]
 
 
 @app.get("/accounts/{account_id}")
@@ -172,8 +179,17 @@ def create_transaction(tx: TransactionCreate, current_user: dict = Depends(get_c
     return tx_data
 
 @app.get("/transactions")
-def get_transactions(current_user: dict = Depends(get_current_user)):
-    return transactions_db
+def get_transactions(
+        account_id: int | None = None,
+        limit: int = 10,
+        skip: int = 0,
+        current_user: dict = Depends(get_current_user)):
+    filtered_transactions = transactions_db
+
+    if account_id:
+        filtered_transactions = [tx for tx in transactions_db if tx["account_id"] == account_id]
+    return filtered_transactions[skip: skip + limit]
+
 
 
 @app.get("/transactions/{tx_id}")
