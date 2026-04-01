@@ -1,7 +1,9 @@
 
 from fastapi import FastAPI, HTTPException, status, Depends
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 import random
+from time import time
+from enum import Enum
 
 from app.core.security import (
     hash_password,
@@ -17,6 +19,13 @@ app = FastAPI()
 users_db = []
 accounts_db = []
 transactions_db = []
+request_count = {}
+
+
+class TransactionType(str, Enum):
+    credit = "credit"
+    debit = "debit"
+
 
 # ===== SCHEMAS =====
 class UserCreate(BaseModel):
@@ -38,8 +47,8 @@ class AccountCreate(BaseModel):
 
 class TransactionCreate(BaseModel):
     account_id: int
-    type: str
-    amount: float
+    type: TransactionType
+    amount: float = Field(gt=0)
     description: str | None = None
 
 
@@ -88,7 +97,9 @@ def create_user(user: UserCreate):
     user_data["password"] = hash_password(user.password)
 
     users_db.append(user_data)
-    return user_data
+    user_data_copy = user_data.copy()
+    user_data_copy.pop("password")
+    return user_data_copy
 
 
 @app.get("/users")
@@ -120,25 +131,31 @@ def login(user: UserLogin):
 # -------- ACCOUNTS --------
 
 @app.post("/accounts")
-def create_account(account: AccountCreate, current_user: dict = Depends(get_current_user)):
+def create_account(
+    account: AccountCreate,
+    current_user: int = Depends(get_current_user)):
+
+    if account.user_id != current_user:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
     user = find_user(account.user_id)
     if not user:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     account_data = account.model_dump()
     account_data["id"] = len(accounts_db) + 1
     account_data["account_number"] = generate_account_number()
-
     accounts_db.append(account_data)
     return account_data
+
 
 
 @app.get("/accounts")
 def get_accounts(
         user_id: int | None = None,
-        limit: inot = 10,
+        limit: int = 10,
         skip: int = 0,
-        current_user: dict = Depends(get_current_user)):
+        current_user: int = Depends(get_current_user)):
     filtered_accounts = accounts_db
     if user_id:
         filtered_accounts =[ acc for acc in accounts_db if acc["user_id"] == user_id]
@@ -146,7 +163,7 @@ def get_accounts(
 
 
 @app.get("/accounts/{account_id}")
-def get_account(account_id: int, current_user: dict = Depends(get_current_user)):
+def get_account(account_id: int, current_user: int = Depends(get_current_user)):
     account = find_account(account_id)
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
@@ -156,34 +173,37 @@ def get_account(account_id: int, current_user: dict = Depends(get_current_user))
 # -------- TRANSACTIONS --------
 
 @app.post("/transactions")
-def create_transaction(tx: TransactionCreate, current_user: dict = Depends(get_current_user)):
+def create_transaction(
+    tx: TransactionCreate,
+    current_user: int = Depends(get_current_user)
+):
+    rate_limiter(current_user)
+
     account = find_account(tx.account_id)
     if not account:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+        raise HTTPException(status_code=404, detail="Account not found")
 
     if tx.type == "debit":
         if account["balance"] < tx.amount:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Insufficient balance")
+            raise HTTPException(status_code=400, detail="Insufficient balance")
         account["balance"] -= tx.amount
 
     elif tx.type == "credit":
         account["balance"] += tx.amount
 
-    else:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid transaction type")
-
     tx_data = tx.model_dump()
     tx_data["id"] = len(transactions_db) + 1
-
     transactions_db.append(tx_data)
     return tx_data
+
+
 
 @app.get("/transactions")
 def get_transactions(
         account_id: int | None = None,
         limit: int = 10,
         skip: int = 0,
-        current_user: dict = Depends(get_current_user)):
+        current_user: int = Depends(get_current_user)):
     filtered_transactions = transactions_db
 
     if account_id:
@@ -193,8 +213,33 @@ def get_transactions(
 
 
 @app.get("/transactions/{tx_id}")
-def get_transaction(tx_id: int, current_user: dict = Depends(get_current_user)):
+def get_transaction(tx_id: int, current_user: int = Depends(get_current_user)):
     tx = find_transaction(tx_id)
     if not tx:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
     return tx
+
+
+
+
+RATE_LIMIT = 5  # requests
+WINDOW = 60     # seconds
+
+def rate_limiter(user_id: int):
+    now = time()
+
+    if user_id not in request_count:
+        request_count[user_id] = []
+
+    # Remove old requests
+    request_count[user_id] = [
+        t for t in request_count[user_id] if now - t < WINDOW
+    ]
+
+    if len(request_count[user_id]) >= RATE_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests"
+        )
+
+    request_count[user_id].append(now)
