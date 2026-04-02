@@ -4,6 +4,8 @@ from pydantic import BaseModel, EmailStr, Field
 import random
 from time import time
 from enum import Enum
+from app.core.db import engine, Base
+from app.models import user
 
 from app.core.security import (
     hash_password,
@@ -15,6 +17,10 @@ from app.core.security import (
 
 app = FastAPI()
 
+
+
+
+Base.metadata.create_all(bind=engine)
 
 users_db = []
 accounts_db = []
