@@ -1,11 +1,12 @@
-
 from fastapi import FastAPI, HTTPException, status, Depends
+from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr, Field
+from enum import Enum
 import random
 from time import time
-from enum import Enum
-from app.core.db import engine, Base
-from app.models import user
+
+from app.core.db import engine, Base, get_db
+from app.models.user import User
 
 from app.core.security import (
     hash_password,
@@ -14,26 +15,25 @@ from app.core.security import (
     get_current_user
 )
 
-
 app = FastAPI()
 
-
-
-
+# Create tables
 Base.metadata.create_all(bind=engine)
 
-users_db = []
+
+# ================= IN-MEMORY (TEMPORARY) =================
 accounts_db = []
 transactions_db = []
 request_count = {}
 
 
+# ================= ENUMS =================
 class TransactionType(str, Enum):
     credit = "credit"
     debit = "debit"
 
 
-# ===== SCHEMAS =====
+# ================= SCHEMAS =================
 class UserCreate(BaseModel):
     username: str
     email: EmailStr
@@ -58,13 +58,76 @@ class TransactionCreate(BaseModel):
     description: str | None = None
 
 
-# ========= HELPERS ===========
-def find_user(user_id: int):
-    for user in users_db:
-        if user["id"] == user_id:
-            return user
-    return None
+# ================= ROOT =================
+@app.get("/")
+def root():
+    return {"message": "FinCore API running..."}
 
+
+# ================= USERS (DB) =================
+
+@app.post("/users")
+def create_user(user: UserCreate, db: Session = Depends(get_db)):
+    db_user = User(
+        username=user.username,
+        email=user.email,
+        password=hash_password(user.password)
+    )
+
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+
+    return {
+        "id": db_user.id,
+        "username": db_user.username,
+        "email": db_user.email
+    }
+
+
+@app.get("/users")
+def get_users(limit: int = 10, skip: int = 0, db: Session = Depends(get_db)):
+    users = db.query(User).offset(skip).limit(limit).all()
+
+    return [
+        {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email
+        }
+        for user in users
+    ]
+
+
+@app.get("/users/{user_id}")
+def get_user(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email
+    }
+
+
+# ================= AUTH (DB) =================
+
+@app.post("/login")
+def login(user: UserLogin, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.email == user.email).first()
+
+    if not db_user or not verify_password(user.password, db_user.password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    token = create_access_token({"sub": str(db_user.id)})
+
+    return {"access_token": token, "token_type": "bearer"}
+
+
+# ================= HELPERS (TEMP) =================
 
 def find_account(account_id: int):
     for account in accounts_db:
@@ -87,96 +150,50 @@ def generate_account_number():
             return account_number
 
 
-# ======== ROUTES ========
-
-@app.get("/")
-def root():
-    return {"message": "FinCore API running..."}
-
-
-# -------- USERS --------
-
-@app.post("/users")
-def create_user(user: UserCreate):
-    user_data = user.model_dump()
-    user_data["id"] = len(users_db) + 1
-    user_data["password"] = hash_password(user.password)
-
-    users_db.append(user_data)
-    user_data_copy = user_data.copy()
-    user_data_copy.pop("password")
-    return user_data_copy
-
-
-@app.get("/users")
-def get_users(limit: int = 10, skip: int = 0):
-    return users_db[skip: skip + limit]
-
-
-@app.get("/users/{user_id}")
-def get_user(user_id: int):
-    user = find_user(user_id)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    return user
-
-
-# -------- AUTH --------
-
-@app.post("/login")
-def login(user: UserLogin):
-    for db_user in users_db:
-        if db_user["email"] == user.email:
-            if verify_password(user.password, db_user["password"]):
-                token = create_access_token({"sub": str(db_user["id"])})
-                return {"access_token": token, "token_type": "bearer"}
-
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-
-
-# -------- ACCOUNTS --------
+# ================= ACCOUNTS (TEMP) =================
 
 @app.post("/accounts")
 def create_account(
     account: AccountCreate,
-    current_user: int = Depends(get_current_user)):
-
+    current_user: int = Depends(get_current_user)
+):
     if account.user_id != current_user:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
-
-    user = find_user(account.user_id)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(status_code=403, detail="Not authorized")
 
     account_data = account.model_dump()
     account_data["id"] = len(accounts_db) + 1
     account_data["account_number"] = generate_account_number()
+
     accounts_db.append(account_data)
     return account_data
 
 
-
 @app.get("/accounts")
 def get_accounts(
-        user_id: int | None = None,
-        limit: int = 10,
-        skip: int = 0,
-        current_user: int = Depends(get_current_user)):
-    filtered_accounts = accounts_db
+    user_id: int | None = None,
+    limit: int = 10,
+    skip: int = 0,
+    current_user: int = Depends(get_current_user)
+):
+    filtered = accounts_db
+
     if user_id:
-        filtered_accounts =[ acc for acc in accounts_db if acc["user_id"] == user_id]
-    return filtered_accounts[skip: skip + limit]
+        filtered = [acc for acc in accounts_db if acc["user_id"] == user_id]
+
+    return filtered[skip: skip + limit]
 
 
 @app.get("/accounts/{account_id}")
 def get_account(account_id: int, current_user: int = Depends(get_current_user)):
     account = find_account(account_id)
+
     if not account:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+        raise HTTPException(status_code=404, detail="Account not found")
+
     return account
 
 
-# -------- TRANSACTIONS --------
+# ================= TRANSACTIONS (TEMP) =================
 
 @app.post("/transactions")
 def create_transaction(
@@ -186,6 +203,7 @@ def create_transaction(
     rate_limiter(current_user)
 
     account = find_account(tx.account_id)
+
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
@@ -199,37 +217,41 @@ def create_transaction(
 
     tx_data = tx.model_dump()
     tx_data["id"] = len(transactions_db) + 1
+
     transactions_db.append(tx_data)
     return tx_data
 
 
-
 @app.get("/transactions")
 def get_transactions(
-        account_id: int | None = None,
-        limit: int = 10,
-        skip: int = 0,
-        current_user: int = Depends(get_current_user)):
-    filtered_transactions = transactions_db
+    account_id: int | None = None,
+    limit: int = 10,
+    skip: int = 0,
+    current_user: int = Depends(get_current_user)
+):
+    filtered = transactions_db
 
     if account_id:
-        filtered_transactions = [tx for tx in transactions_db if tx["account_id"] == account_id]
-    return filtered_transactions[skip: skip + limit]
+        filtered = [tx for tx in transactions_db if tx["account_id"] == account_id]
 
+    return filtered[skip: skip + limit]
 
 
 @app.get("/transactions/{tx_id}")
 def get_transaction(tx_id: int, current_user: int = Depends(get_current_user)):
     tx = find_transaction(tx_id)
+
     if not tx:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
     return tx
 
 
+# ================= RATE LIMIT =================
 
+RATE_LIMIT = 5
+WINDOW = 60
 
-RATE_LIMIT = 5  # requests
-WINDOW = 60     # seconds
 
 def rate_limiter(user_id: int):
     now = time()
@@ -237,15 +259,11 @@ def rate_limiter(user_id: int):
     if user_id not in request_count:
         request_count[user_id] = []
 
-    # Remove old requests
     request_count[user_id] = [
         t for t in request_count[user_id] if now - t < WINDOW
     ]
 
     if len(request_count[user_id]) >= RATE_LIMIT:
-        raise HTTPException(
-            status_code=429,
-            detail="Too many requests"
-        )
+        raise HTTPException(status_code=429, detail="Too many requests")
 
     request_count[user_id].append(now)
