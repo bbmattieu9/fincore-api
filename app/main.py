@@ -7,6 +7,10 @@ from time import time
 
 from app.core.db import engine, Base, get_db
 from app.models.user import User
+from app.models.account import Account
+
+
+
 
 from app.core.security import (
     hash_password,
@@ -22,7 +26,7 @@ Base.metadata.create_all(bind=engine)
 
 
 # ================= IN-MEMORY (TEMPORARY) =================
-accounts_db = []
+# accounts_db = []
 transactions_db = []
 request_count = {}
 
@@ -119,7 +123,7 @@ def get_user(user_id: int, db: Session = Depends(get_db)):
 def login(user: UserLogin, db: Session = Depends(get_db)):
     db_user = db.query(User).filter(User.email == user.email).first()
 
-    if not db_user or not verify_password(user.password, db_user.password):
+    if not db_user or not verify_password(user.password, db_user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     token = create_access_token({"sub": str(db_user.id)})
@@ -129,11 +133,11 @@ def login(user: UserLogin, db: Session = Depends(get_db)):
 
 # ================= HELPERS (TEMP) =================
 
-def find_account(account_id: int):
-    for account in accounts_db:
-        if account["id"] == account_id:
-            return account
-    return None
+# def find_account(account_id: int):
+#     for account in accounts_db:
+#         if account["id"] == account_id:
+#             return account
+#     return None
 
 
 def find_transaction(tx_id: int):
@@ -143,49 +147,63 @@ def find_transaction(tx_id: int):
     return None
 
 
-def generate_account_number():
+def generate_account_number(db: Session):
     while True:
         account_number = str(random.randint(1000000000, 9999999999))
-        if not any(acc["account_number"] == account_number for acc in accounts_db):
+        existing = db.query(Account).filter(
+            Account.account_number == account_number
+        ).first()
+
+        if not existing:
             return account_number
 
 
 # ================= ACCOUNTS (TEMP) =================
 
+
 @app.post("/accounts")
 def create_account(
     account: AccountCreate,
+    db: Session = Depends(get_db),
     current_user: int = Depends(get_current_user)
 ):
     if account.user_id != current_user:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    account_data = account.model_dump()
-    account_data["id"] = len(accounts_db) + 1
-    account_data["account_number"] = generate_account_number()
+    db_account = Account(
+        user_id=account.user_id,
+        account_type=account.account_type,
+        balance=account.balance,
+        account_number=generate_account_number(db)
+    )
 
-    accounts_db.append(account_data)
-    return account_data
+    db.add(db_account)
+    db.commit()
+    db.refresh(db_account)
 
+    return db_account
 
 @app.get("/accounts")
 def get_accounts(
-    user_id: int | None = None,
     limit: int = 10,
     skip: int = 0,
+    db: Session = Depends(get_db),
     current_user: int = Depends(get_current_user)
 ):
-    filtered = accounts_db
-
-    if user_id:
-        filtered = [acc for acc in accounts_db if acc["user_id"] == user_id]
-
-    return filtered[skip: skip + limit]
+    return db.query(Account)\
+        .filter(Account.user_id == current_user)\
+        .offset(skip)\
+        .limit(limit)\
+        .all()
 
 
 @app.get("/accounts/{account_id}")
-def get_account(account_id: int, current_user: int = Depends(get_current_user)):
-    account = find_account(account_id)
+def get_account(
+    account_id: int,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(get_current_user)
+):
+    account = db.query(Account).filter(Account.id == account_id).first()
 
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
