@@ -12,15 +12,11 @@ security = HTTPBearer()
 
 
 def hash_password(password: str) -> str:
-    # Pre-hash to avoid bcrypt 72-byte limit
-    hashed = hashlib.sha256(password.encode()).hexdigest()
-    return pwd_context.hash(hashed)
+    return pwd_context.hash(password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    # Apply same transformation before verification
-    hashed = hashlib.sha256(plain_password.encode()).hexdigest()
-    return pwd_context.verify(hashed, hashed_password)
+    return pwd_context.verify(plain_password, hashed_password)
 
 
 def create_access_token(data: dict):
