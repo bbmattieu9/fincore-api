@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, status, Depends
 from sqlalchemy.orm import Session
+from sqlalchemy import desc
 from pydantic import BaseModel, EmailStr, Field
 from enum import Enum
 import random
@@ -9,6 +10,9 @@ from app.core.db import engine, Base, get_db
 from app.models.user import User
 from app.models.account import Account
 from app.models.transaction import Transaction
+
+from app.schemas.transaction import TransactionResponse
+
 
 
 
@@ -212,7 +216,7 @@ def get_account(
     return account
 
 
-# ================= TRANSACTIONS (TEMP) =================
+# ================= TRANSACTIONS () =================
 
 @app.post("/transactions")
 def create_transaction(
@@ -263,19 +267,28 @@ def create_transaction(
         raise
 
 
-@app.get("/transactions")
+@app.get("/transactions", response_model=list[TransactionResponse])
 def get_transactions(
     account_id: int | None = None,
     limit: int = 10,
     skip: int = 0,
+    db: Session = Depends(get_db),
     current_user: int = Depends(get_current_user)
 ):
-    filtered = transactions_db
+    query = db.query(Transaction)
 
     if account_id:
-        filtered = [tx for tx in transactions_db if tx["account_id"] == account_id]
+        account = db.query(Account).filter(Account.id == account_id).first()
 
-    return filtered[skip: skip + limit]
+        if not account:
+            raise HTTPException(status_code=404, detail="Account not found")
+
+        if account.user_id != current_user:
+            raise HTTPException(status_code=403, detail="Not authorized")
+
+        query = query.filter(Transaction.account_id == account_id)
+
+    return query.offset(skip).limit(limit).all()
 
 
 @app.get("/transactions/{tx_id}")
@@ -287,6 +300,26 @@ def get_transaction(tx_id: int, current_user: int = Depends(get_current_user)):
 
     return tx
 
+@app.get("/accounts/{account_id}/statement", response_model=list[TransactionResponse])
+def get_account_statement(
+    account_id: int,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(get_current_user)
+):
+    account = db.query(Account).filter(Account.id == account_id).first()
+
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    if account.user_id != current_user:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    transactions = db.query(Transaction)\
+        .filter(Transaction.account_id == account_id)\
+        .order_by(desc(Transaction.id))\
+        .all()
+
+    return transactions
 
 # ================= RATE LIMIT =================
 
