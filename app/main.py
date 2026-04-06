@@ -8,6 +8,7 @@ from time import time
 from app.core.db import engine, Base, get_db
 from app.models.user import User
 from app.models.account import Account
+from app.models.transaction import Transaction
 
 
 
@@ -216,28 +217,50 @@ def get_account(
 @app.post("/transactions")
 def create_transaction(
     tx: TransactionCreate,
-    current_user: int = Depends(get_current_user)
-):
+    db: Session = Depends(get_db),
+    current_user: int = Depends(get_current_user)):
+
     rate_limiter(current_user)
 
-    account = find_account(tx.account_id)
+
+    account = db.query(Account).filter(
+        Account.id == tx.account_id
+    ).first()
 
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
-    if tx.type == "debit":
-        if account["balance"] < tx.amount:
-            raise HTTPException(status_code=400, detail="Insufficient balance")
-        account["balance"] -= tx.amount
 
-    elif tx.type == "credit":
-        account["balance"] += tx.amount
+    if account.user_id != current_user:
+        raise HTTPException(status_code=403, detail="Not authorized")
 
-    tx_data = tx.model_dump()
-    tx_data["id"] = len(transactions_db) + 1
+    try:
 
-    transactions_db.append(tx_data)
-    return tx_data
+        if tx.type == "debit":
+            if account.balance < tx.amount:
+                raise HTTPException(status_code=400, detail="Insufficient balance")
+
+            account.balance -= tx.amount
+
+        elif tx.type == "credit":
+            account.balance += tx.amount
+
+
+        db_tx = Transaction(
+            account_id=tx.account_id,
+            type=tx.type.value,  # Enum → string
+            amount=tx.amount,
+            description=tx.description
+        )
+
+        db.add(db_tx)
+        db.commit()
+        db.refresh(db_tx)
+        return db_tx
+
+    except Exception:
+        db.rollback()
+        raise
 
 
 @app.get("/transactions")
