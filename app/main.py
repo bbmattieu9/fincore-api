@@ -1,28 +1,35 @@
-from fastapi import FastAPI, HTTPException, status, Depends
+from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
-from pydantic import BaseModel, EmailStr, Field
-from enum import Enum
-import random
-from time import time
 
 from app.core.db import engine, Base, get_db
-from app.models.user import User
-from app.models.account import Account
-from app.models.transaction import Transaction
+from app.core.security import get_current_user
 
-from app.schemas.transaction import TransactionResponse
-
-
-
-
-
-from app.core.security import (
-    hash_password,
-    verify_password,
-    create_access_token,
-    get_current_user
+# Services
+from app.services.user_service import (
+    create_user_service,
+    get_users_service,
+    get_user_service,
 )
+
+from app.services.auth_service import login_service
+
+from app.services.account_service import (
+    create_account_service,
+    get_accounts_service,
+    get_account_service,
+)
+
+from app.services.transaction_service import (
+    create_transaction_service,
+    get_transactions_service,
+    get_account_statement_service,
+)
+
+# Schemas
+from app.schemas.user import UserCreate, UserLogin, UserResponse
+from app.schemas.account import AccountCreate, AccountResponse
+from app.schemas.transaction import TransactionCreate, TransactionResponse
+
 
 app = FastAPI()
 
@@ -30,241 +37,76 @@ app = FastAPI()
 Base.metadata.create_all(bind=engine)
 
 
-# ================= IN-MEMORY (TEMPORARY) =================
-# accounts_db = []
-transactions_db = []
-request_count = {}
-
-
-# ================= ENUMS =================
-class TransactionType(str, Enum):
-    credit = "credit"
-    debit = "debit"
-
-
-# ================= SCHEMAS =================
-class UserCreate(BaseModel):
-    username: str
-    email: EmailStr
-    password: str
-
-
-class UserLogin(BaseModel):
-    email: EmailStr
-    password: str
-
-
-class AccountCreate(BaseModel):
-    user_id: int
-    account_type: str
-    balance: float = 0.0
-
-
-class TransactionCreate(BaseModel):
-    account_id: int
-    type: TransactionType
-    amount: float = Field(gt=0)
-    description: str | None = None
-
-
 # ================= ROOT =================
+
 @app.get("/")
 def root():
     return {"message": "FinCore API running..."}
 
 
-# ================= USERS (DB) =================
+# ================= USERS =================
 
-@app.post("/users")
+@app.post("/users", response_model=UserResponse)
 def create_user(user: UserCreate, db: Session = Depends(get_db)):
-    db_user = User(
-        username=user.username,
-        email=user.email,
-        hashed_password=hash_password(user.password)
-    )
-
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
-
-    return {
-        "id": db_user.id,
-        "username": db_user.username,
-        "email": db_user.email
-    }
+    return create_user_service(db, user)
 
 
-@app.get("/users")
+@app.get("/users", response_model=list[UserResponse])
 def get_users(limit: int = 10, skip: int = 0, db: Session = Depends(get_db)):
-    users = db.query(User).offset(skip).limit(limit).all()
-
-    return [
-        {
-            "id": user.id,
-            "username": user.username,
-            "email": user.email
-        }
-        for user in users
-    ]
+    return get_users_service(db, limit, skip)
 
 
-@app.get("/users/{user_id}")
+@app.get("/users/{user_id}", response_model=UserResponse)
 def get_user(user_id: int, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.id == user_id).first()
-
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    return {
-        "id": user.id,
-        "username": user.username,
-        "email": user.email
-    }
+    return get_user_service(db, user_id)
 
 
-# ================= AUTH (DB) =================
+# ================= AUTH =================
 
 @app.post("/login")
 def login(user: UserLogin, db: Session = Depends(get_db)):
-    db_user = db.query(User).filter(User.email == user.email).first()
-
-    if not db_user or not verify_password(user.password, db_user.hashed_password):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    token = create_access_token({"sub": str(db_user.id)})
-
-    return {"access_token": token, "token_type": "bearer"}
+    return login_service(db, user)
 
 
-# ================= HELPERS (TEMP) =================
+# ================= ACCOUNTS =================
 
-# def find_account(account_id: int):
-#     for account in accounts_db:
-#         if account["id"] == account_id:
-#             return account
-#     return None
-
-
-def find_transaction(tx_id: int):
-    for tx in transactions_db:
-        if tx["id"] == tx_id:
-            return tx
-    return None
-
-
-def generate_account_number(db: Session):
-    while True:
-        account_number = str(random.randint(1000000000, 9999999999))
-        existing = db.query(Account).filter(
-            Account.account_number == account_number
-        ).first()
-
-        if not existing:
-            return account_number
-
-
-# ================= ACCOUNTS (TEMP) =================
-
-
-@app.post("/accounts")
+@app.post("/accounts", response_model=AccountResponse)
 def create_account(
     account: AccountCreate,
     db: Session = Depends(get_db),
-    current_user: int = Depends(get_current_user)
+    current_user: int = Depends(get_current_user),
 ):
-    if account.user_id != current_user:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    return create_account_service(db, account, current_user)
 
-    db_account = Account(
-        user_id=account.user_id,
-        account_type=account.account_type,
-        balance=account.balance,
-        account_number=generate_account_number(db)
-    )
 
-    db.add(db_account)
-    db.commit()
-    db.refresh(db_account)
-
-    return db_account
-
-@app.get("/accounts")
+@app.get("/accounts", response_model=list[AccountResponse])
 def get_accounts(
     limit: int = 10,
     skip: int = 0,
     db: Session = Depends(get_db),
-    current_user: int = Depends(get_current_user)
+    current_user: int = Depends(get_current_user),
 ):
-    return db.query(Account)\
-        .filter(Account.user_id == current_user)\
-        .offset(skip)\
-        .limit(limit)\
-        .all()
+    return get_accounts_service(db, current_user, limit, skip)
 
 
-@app.get("/accounts/{account_id}")
+@app.get("/accounts/{account_id}", response_model=AccountResponse)
 def get_account(
     account_id: int,
     db: Session = Depends(get_db),
-    current_user: int = Depends(get_current_user)
+    current_user: int = Depends(get_current_user),
 ):
-    account = db.query(Account).filter(Account.id == account_id).first()
-
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
-
-    return account
+    return get_account_service(db, account_id, current_user)
 
 
-# ================= TRANSACTIONS () =================
+# ================= TRANSACTIONS =================
 
-@app.post("/transactions")
+@app.post("/transactions", response_model=TransactionResponse)
 def create_transaction(
     tx: TransactionCreate,
     db: Session = Depends(get_db),
-    current_user: int = Depends(get_current_user)):
-
-    rate_limiter(current_user)
-
-
-    account = db.query(Account).filter(
-        Account.id == tx.account_id
-    ).first()
-
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
-
-
-    if account.user_id != current_user:
-        raise HTTPException(status_code=403, detail="Not authorized")
-
-    try:
-
-        if tx.type == "debit":
-            if account.balance < tx.amount:
-                raise HTTPException(status_code=400, detail="Insufficient balance")
-
-            account.balance -= tx.amount
-
-        elif tx.type == "credit":
-            account.balance += tx.amount
-
-
-        db_tx = Transaction(
-            account_id=tx.account_id,
-            type=tx.type.value,  # Enum → string
-            amount=tx.amount,
-            description=tx.description
-        )
-
-        db.add(db_tx)
-        db.commit()
-        db.refresh(db_tx)
-        return db_tx
-
-    except Exception:
-        db.rollback()
-        raise
+    current_user: int = Depends(get_current_user),
+):
+    return create_transaction_service(db, tx, current_user)
 
 
 @app.get("/transactions", response_model=list[TransactionResponse])
@@ -273,71 +115,15 @@ def get_transactions(
     limit: int = 10,
     skip: int = 0,
     db: Session = Depends(get_db),
-    current_user: int = Depends(get_current_user)
+    current_user: int = Depends(get_current_user),
 ):
-    query = db.query(Transaction)
+    return get_transactions_service(db, current_user, account_id, limit, skip)
 
-    if account_id:
-        account = db.query(Account).filter(Account.id == account_id).first()
-
-        if not account:
-            raise HTTPException(status_code=404, detail="Account not found")
-
-        if account.user_id != current_user:
-            raise HTTPException(status_code=403, detail="Not authorized")
-
-        query = query.filter(Transaction.account_id == account_id)
-
-    return query.offset(skip).limit(limit).all()
-
-
-@app.get("/transactions/{tx_id}")
-def get_transaction(tx_id: int, current_user: int = Depends(get_current_user)):
-    tx = find_transaction(tx_id)
-
-    if not tx:
-        raise HTTPException(status_code=404, detail="Transaction not found")
-
-    return tx
 
 @app.get("/accounts/{account_id}/statement", response_model=list[TransactionResponse])
 def get_account_statement(
     account_id: int,
     db: Session = Depends(get_db),
-    current_user: int = Depends(get_current_user)
+    current_user: int = Depends(get_current_user),
 ):
-    account = db.query(Account).filter(Account.id == account_id).first()
-
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
-
-    if account.user_id != current_user:
-        raise HTTPException(status_code=403, detail="Not authorized")
-
-    transactions = db.query(Transaction)\
-        .filter(Transaction.account_id == account_id)\
-        .order_by(desc(Transaction.id))\
-        .all()
-
-    return transactions
-
-# ================= RATE LIMIT =================
-
-RATE_LIMIT = 5
-WINDOW = 60
-
-
-def rate_limiter(user_id: int):
-    now = time()
-
-    if user_id not in request_count:
-        request_count[user_id] = []
-
-    request_count[user_id] = [
-        t for t in request_count[user_id] if now - t < WINDOW
-    ]
-
-    if len(request_count[user_id]) >= RATE_LIMIT:
-        raise HTTPException(status_code=429, detail="Too many requests")
-
-    request_count[user_id].append(now)
+    return get_account_statement_service(db, account_id, current_user)
