@@ -86,7 +86,7 @@ def get_accounts(
     db: Session = Depends(get_db),
     current_user: int = Depends(get_current_user),
 ):
-    return get_accounts_service(db, current_user, limit, skip)
+    return get_accounts_service(db, current_user, skip, limit)
 
 
 @app.get("/accounts/{account_id}", response_model=AccountResponse)

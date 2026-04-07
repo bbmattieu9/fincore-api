@@ -93,4 +93,4 @@ def get_account_statement_service(
 
     query = get_transactions_query(db).filter_by(account_id=account_id)
 
-    return query.order_by(desc("id")).all()
+    return query.order_by(desc(Transaction.id)).all()
