@@ -22,7 +22,7 @@ def create_user_service(db: Session, user):
     return db_user
 
 
-def login_user_service(db: Session, user):
+def login_service(db: Session, user):
     db_user = get_user_by_email(db, user.email)
 
     if not db_user or not verify_password(user.password, db_user.hashed_password):
