@@ -7,6 +7,8 @@ from app.repositories.account_repository import (
     get_accounts_by_user
 )
 
+from app.utils.account_utils import generate_account_number
+# from app.core.exceptions import not_found, forbidden
 
 def create_account_service(db: Session, account_data, current_user: int):
     if account_data.user_id != current_user:
@@ -16,7 +18,7 @@ def create_account_service(db: Session, account_data, current_user: int):
         "user_id": account_data.user_id,
         "account_type": account_data.account_type,
         "balance": account_data.balance,
-        "account_number": "TEMP_GENERATE"  # 🔴 fix later via util
+        "account_number": generate_account_number(db)
     })
 
     db.commit()

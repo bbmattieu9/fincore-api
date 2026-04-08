@@ -8,8 +8,7 @@ from app.repositories.transaction_repository import (
     get_transactions_query
 )
 from app.models.transaction import Transaction
-
-from app.core.rate_limiter import rate_limiter
+from app.utils.rate_limiter import  rate_limiter
 
 
 # ================= CREATE TRANSACTION =================
