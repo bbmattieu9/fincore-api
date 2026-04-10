@@ -14,7 +14,8 @@ def create_user_service(db: Session, user):
     db_user = create_user(db, {
         "username": user.username,
         "email": user.email,
-        "hashed_password": hash_password(user.password)
+        "hashed_password": hash_password(user.password),
+        "role": "user"
     })
 
     db.commit()
@@ -28,7 +29,7 @@ def login_service(db: Session, user):
     if not db_user or not verify_password(user.password, db_user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    return create_access_token({"sub": str(db_user.id)})
+    return create_access_token({"sub": str(db_user.id), "role": db_user.role })
 
 
 def get_users_service(db: Session, limit: int, skip: int):

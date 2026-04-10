@@ -34,4 +34,8 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         user_id = int(payload.get("sub"))
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
-    return user_id
+    # return user_id
+    return {
+        "id": int(payload.get("sub")),
+        "role": payload.get("role")
+    }
