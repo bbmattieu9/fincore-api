@@ -8,9 +8,9 @@ from app.repositories.account_repository import (
 )
 from app.repositories.transaction_repository import (
     create_transaction,
-    get_transactions_query
+    get_transactions_by_account,
+    get_all_transactions
 )
-from app.models.transaction import Transaction
 from app.utils.rate_limiter import rate_limiter
 
 
@@ -27,21 +27,17 @@ def _validate_account_access(account, current_user: int):
 # ================= CREATE TRANSACTION =================
 
 def create_transaction_service(db: Session, tx, current_user: int):
-    # Rate limiting
     rate_limiter(current_user)
 
     account = get_account_by_id(db, tx.account_id)
     _validate_account_access(account, current_user)
 
-    # Business rule: prevent overdraft
     if tx.type.value == "debit" and account.balance < tx.amount:
         raise HTTPException(status_code=400, detail="Insufficient balance")
 
     try:
-        # Update account balance
         update_account_balance(account, tx.amount, tx.type.value)
 
-        # Persist transaction
         db_tx = create_transaction(db, {
             "account_id": tx.account_id,
             "type": tx.type.value,
@@ -68,21 +64,16 @@ def get_transactions_service(
     limit: int,
     skip: int
 ):
-    query = get_transactions_query(db)
-
     if account_id:
         account = get_account_by_id(db, account_id)
         _validate_account_access(account, current_user)
 
-        query = query.filter_by(account_id=account_id)
+        transactions = get_transactions_by_account(db, account_id, skip, limit)
+    else:
+        transactions = get_all_transactions(db, skip, limit)
 
-    return (
-        query
-        .order_by(desc(Transaction.id))  # latest first
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
+    # Apply sorting (business rule)
+    return sorted(transactions, key=lambda tx: tx.id, reverse=True)
 
 
 # ================= ACCOUNT STATEMENT =================
@@ -95,9 +86,6 @@ def get_account_statement_service(
     account = get_account_by_id(db, account_id)
     _validate_account_access(account, current_user)
 
-    return (
-        get_transactions_query(db)
-        .filter_by(account_id=account_id)
-        .order_by(desc(Transaction.id))  # latest first
-        .all()
-    )
+    transactions = get_transactions_by_account(db, account_id, 0, 1000)
+
+    return sorted(transactions, key=lambda tx: tx.id, reverse=True)
