@@ -3,12 +3,15 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from app.models.user import User
+from app.schemas.user import UserCreate, UserLogin
+
 from app.repositories.user_repository import (
     create_user,
     get_user_by_email,
     get_users,
     get_user_by_id
 )
+
 from app.core.security import (
     hash_password,
     verify_password,
@@ -18,7 +21,7 @@ from app.core.security import (
 
 # ================= CREATE USER =================
 
-def create_user_service(db: Session, user) -> User:
+def create_user_service(db: Session, user: UserCreate) -> User:
     # Prevent duplicate email
     existing_user = get_user_by_email(db, user.email)
     if existing_user:
@@ -42,7 +45,7 @@ def create_user_service(db: Session, user) -> User:
 
 # ================= LOGIN =================
 
-def login_service(db: Session, user) -> dict:
+def login_service(db: Session, user: UserLogin) -> dict:
     db_user = get_user_by_email(db, user.email)
 
     if not db_user or not verify_password(user.password, db_user.hashed_password):
