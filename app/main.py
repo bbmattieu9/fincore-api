@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
 
 from app.core.db import engine, Base, get_db
-from app.core.security import get_current_user
+from app.core.permissions import require_role
 
 # Services
 from app.services.user_service import (
@@ -33,7 +33,6 @@ from app.schemas.transaction import TransactionCreate, TransactionResponse
 
 app = FastAPI()
 
-# Create tables
 Base.metadata.create_all(bind=engine)
 
 
@@ -52,12 +51,21 @@ def create_user(user: UserCreate, db: Session = Depends(get_db)):
 
 
 @app.get("/users", response_model=list[UserResponse])
-def get_users(limit: int = 10, skip: int = 0, db: Session = Depends(get_db)):
+def get_users(
+    limit: int = 10,
+    skip: int = 0,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_role(["admin"]))  # 🔥 RBAC
+):
     return get_users_service(db, limit, skip)
 
 
 @app.get("/users/{user_id}", response_model=UserResponse)
-def get_user(user_id: int, db: Session = Depends(get_db)):
+def get_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_role(["admin"]))  # 🔥 RBAC
+):
     return get_user_service(db, user_id)
 
 
@@ -65,7 +73,12 @@ def get_user(user_id: int, db: Session = Depends(get_db)):
 
 @app.post("/login")
 def login(user: UserLogin, db: Session = Depends(get_db)):
-    return login_service(db, user)
+    token = login_service(db, user)
+
+    return {
+        "access_token": token,
+        "token_type": "bearer"
+    }
 
 
 # ================= ACCOUNTS =================
@@ -74,9 +87,9 @@ def login(user: UserLogin, db: Session = Depends(get_db)):
 def create_account(
     account: AccountCreate,
     db: Session = Depends(get_db),
-    current_user: int = Depends(get_current_user),
+    current_user: dict = Depends(require_role(["user", "admin"])),
 ):
-    return create_account_service(db, account, current_user)
+    return create_account_service(db, account, current_user["id"])
 
 
 @app.get("/accounts", response_model=list[AccountResponse])
@@ -84,18 +97,18 @@ def get_accounts(
     limit: int = 10,
     skip: int = 0,
     db: Session = Depends(get_db),
-    current_user: int = Depends(get_current_user),
+    current_user: dict = Depends(require_role(["user", "admin"])),
 ):
-    return get_accounts_service(db, current_user, skip, limit)
+    return get_accounts_service(db, current_user["id"], skip, limit)
 
 
 @app.get("/accounts/{account_id}", response_model=AccountResponse)
 def get_account(
     account_id: int,
     db: Session = Depends(get_db),
-    current_user: int = Depends(get_current_user),
+    current_user: dict = Depends(require_role(["user", "admin"])),
 ):
-    return get_account_service(db, account_id, current_user)
+    return get_account_service(db, account_id, current_user["id"])
 
 
 # ================= TRANSACTIONS =================
@@ -104,9 +117,9 @@ def get_account(
 def create_transaction(
     tx: TransactionCreate,
     db: Session = Depends(get_db),
-    current_user: int = Depends(get_current_user),
+    current_user: dict = Depends(require_role(["user", "admin"])),
 ):
-    return create_transaction_service(db, tx, current_user)
+    return create_transaction_service(db, tx, current_user["id"])
 
 
 @app.get("/transactions", response_model=list[TransactionResponse])
@@ -115,15 +128,15 @@ def get_transactions(
     limit: int = 10,
     skip: int = 0,
     db: Session = Depends(get_db),
-    current_user: int = Depends(get_current_user),
+    current_user: dict = Depends(require_role(["user", "admin"])),
 ):
-    return get_transactions_service(db, current_user, account_id, limit, skip)
+    return get_transactions_service(db, current_user["id"], account_id, limit, skip)
 
 
 @app.get("/accounts/{account_id}/statement", response_model=list[TransactionResponse])
 def get_account_statement(
     account_id: int,
     db: Session = Depends(get_db),
-    current_user: int = Depends(get_current_user),
+    current_user: dict = Depends(require_role(["user", "admin"])),
 ):
-    return get_account_statement_service(db, account_id, current_user)
+    return get_account_statement_service(db, account_id, current_user["id"])
