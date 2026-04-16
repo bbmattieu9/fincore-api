@@ -13,6 +13,12 @@ from app.repositories.transaction_repository import (
 )
 from app.utils.rate_limiter import rate_limiter
 
+from app.repositories.transaction_repository import (
+    get_transactions_query,
+    filter_by_account,
+    apply_latest_sort,
+    apply_pagination
+)
 
 # ================= VALIDATION HELPER =================
 
@@ -64,16 +70,18 @@ def get_transactions_service(
     limit: int,
     skip: int
 ):
+    query = get_transactions_query(db)
+
     if account_id:
         account = get_account_by_id(db, account_id)
         _validate_account_access(account, current_user)
 
-        transactions = get_transactions_by_account(db, account_id, skip, limit)
-    else:
-        transactions = get_all_transactions(db, skip, limit)
+        query = filter_by_account(query, account_id)
 
-    # Apply sorting (business rule)
-    return sorted(transactions, key=lambda tx: tx.id, reverse=True)
+    query = apply_latest_sort(query)
+    query = apply_pagination(query, skip, limit)
+
+    return query.all()
 
 
 # ================= ACCOUNT STATEMENT =================
