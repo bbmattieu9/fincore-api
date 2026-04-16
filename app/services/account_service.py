@@ -7,7 +7,9 @@ from app.models.account import Account
 from app.repositories.account_repository import (
     get_account_by_id,
     create_account,
-    get_accounts_by_user
+    get_accounts_query,
+    filter_by_user,
+    apply_pagination
 )
 
 from app.utils.account_utils import generate_account_number
@@ -15,14 +17,14 @@ from app.utils.account_utils import generate_account_number
 
 # ================= VALIDATION HELPER =================
 
-def _validate_account_access(account: Account, current_user: int):
+def _validate_account_access(account: Account, current_user: dict):
     if not account:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Account not found"
         )
 
-    if account.user_id != current_user:
+    if account.user_id != current_user["id"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized"
@@ -34,16 +36,11 @@ def _validate_account_access(account: Account, current_user: int):
 def create_account_service(
     db: Session,
     account_data: AccountCreate,
-    current_user: int
+    current_user: dict
 ) -> Account:
-    if account_data.user_id != current_user:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized"
-        )
 
     account = create_account(db, {
-        "user_id": account_data.user_id,
+        "user_id": current_user["id"],
         "account_type": account_data.account_type,
         "balance": account_data.balance,
         "account_number": generate_account_number(db)
@@ -59,11 +56,15 @@ def create_account_service(
 
 def get_accounts_service(
     db: Session,
-    current_user: int,
+    current_user: dict,
     skip: int,
     limit: int
 ):
-    return get_accounts_by_user(db, current_user, skip, limit)
+    query = get_accounts_query(db)
+    query = filter_by_user(query, current_user["id"])
+    query = apply_pagination(query, skip, limit)
+
+    return query.all()
 
 
 # ================= GET SINGLE ACCOUNT =================
@@ -71,7 +72,7 @@ def get_accounts_service(
 def get_account_service(
     db: Session,
     account_id: int,
-    current_user: int
+    current_user: dict
 ) -> Account:
     account = get_account_by_id(db, account_id)
     _validate_account_access(account, current_user)
