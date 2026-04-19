@@ -73,12 +73,7 @@ def get_user(
 
 @app.post("/login")
 def login(user: UserLogin, db: Session = Depends(get_db)):
-    token = login_service(db, user)
-
-    return {
-        "access_token": token,
-        "token_type": "bearer"
-    }
+    return login_service(db, user)
 
 
 # ================= ACCOUNTS =================
