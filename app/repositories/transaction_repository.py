@@ -1,37 +1,47 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, Query
 from sqlalchemy import desc
+from typing import Optional
+
 from app.models.transaction import Transaction
 
 
-# CREATE stays the same
-def create_transaction(db: Session, tx_data: dict):
+# ================= CREATE =================
+
+def create_transaction(db: Session, tx_data: dict) -> Transaction:
     db_tx = Transaction(**tx_data)
     db.add(db_tx)
     return db_tx
 
 
-# STEP 1: Base query
-def get_transactions_query(db: Session):
+# ================= BASE QUERY =================
+
+def get_transactions_query(db: Session) -> Query:
     return db.query(Transaction)
 
 
-# STEP 2: Filter
-def filter_by_account(query, account_id: int):
+# ================= FILTER =================
+
+def filter_by_account(query: Query, account_id: int) -> Query:
     return query.filter(Transaction.account_id == account_id)
 
 
-# STEP 3: Sorting
-def apply_latest_sort(query):
+# ================= SORT =================
+
+def apply_latest_sort(query: Query) -> Query:
     return query.order_by(desc(Transaction.id))
 
 
-# STEP 4: Pagination
-def apply_pagination(query, skip: int, limit: int):
+# ================= PAGINATION =================
+
+def apply_pagination(query: Query, skip: int, limit: int) -> Query:
     return query.offset(skip).limit(limit)
 
 
-# STEP 5: Single
-def get_transaction_by_id(db: Session, tx_id: int):
-    return db.query(Transaction)\
-        .filter(Transaction.id == tx_id)\
+# ================= SINGLE =================
+
+def get_transaction_by_id(db: Session, tx_id: int) -> Optional[Transaction]:
+    return (
+        get_transactions_query(db)
+        .filter(Transaction.id == tx_id)
         .first()
+    )
