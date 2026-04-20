@@ -1,6 +1,6 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, Query
+from typing import Optional, Literal
 from app.models.account import Account
-from typing import Literal
 
 
 # ================= CREATE =================
@@ -13,28 +13,36 @@ def create_account(db: Session, account_data: dict) -> Account:
 
 # ================= BASE QUERY =================
 
-def get_accounts_query(db: Session):
+def get_accounts_query(db: Session) -> Query:
     return db.query(Account)
 
 
 # ================= FILTERS =================
 
-def filter_by_user(query, user_id: int):
+def filter_by_user(query: Query, user_id: int) -> Query:
     return query.filter(Account.user_id == user_id)
+
+
+# ================= SORT (optional but consistent) =================
+
+def apply_latest_sort(query: Query) -> Query:
+    return query.order_by(Account.id.desc())
 
 
 # ================= PAGINATION =================
 
-def apply_pagination(query, skip: int, limit: int):
+def apply_pagination(query: Query, skip: int, limit: int) -> Query:
     return query.offset(skip).limit(limit)
 
 
 # ================= SINGLE =================
 
-def get_account_by_id(db: Session, account_id: int) -> Account | None:
-    return db.query(Account)\
-        .filter(Account.id == account_id)\
+def get_account_by_id(db: Session, account_id: int) -> Optional[Account]:
+    return (
+        get_accounts_query(db)
+        .filter(Account.id == account_id)
         .first()
+    )
 
 
 # ================= UPDATE =================
