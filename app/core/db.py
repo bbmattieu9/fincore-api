@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, MetaData
 from sqlalchemy.orm import sessionmaker, declarative_base
 from urllib.parse import quote_plus
 
@@ -23,10 +23,21 @@ DATABASE_URL = (
     f"@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}"
 )
 
+# Naming convention (for Alembic)
+convention = {
+    "ix": "ix_%(column_0_label)s",
+    "uq": "uq_%(table_name)s_%(column_0_name)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s"
+}
+
+metadata = MetaData(naming_convention=convention)
+
 # Engine
 engine = create_engine(
     DATABASE_URL,
-    echo=True,
+    echo=False,
     pool_pre_ping=True
 )
 
@@ -37,8 +48,8 @@ SessionLocal = sessionmaker(
     bind=engine
 )
 
-# Base model
-Base = declarative_base()
+# Base
+Base = declarative_base(metadata=metadata)
 
 
 # Dependency
