@@ -33,7 +33,7 @@ from app.schemas.transaction import TransactionCreate, TransactionResponse
 
 app = FastAPI()
 
-Base.metadata.create_all(bind=engine)
+# Base.metadata.create_all(bind=engine)
 
 
 # ================= ROOT =================
