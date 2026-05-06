@@ -1,6 +1,9 @@
-from logging.config import fileConfig
+from sqlalchemy import create_engine
+from dotenv import load_dotenv
+load_dotenv()
 
-from sqlalchemy import engine_from_config, pool
+from logging.config import fileConfig
+from sqlalchemy import pool
 from alembic import context
 
 from app.core.db import DATABASE_URL, Base
@@ -43,11 +46,9 @@ def run_migrations_offline() -> None:
 
 
 # ================= ONLINE MODE =================
-
 def run_migrations_online() -> None:
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
+    connectable = create_engine(
+        DATABASE_URL,
         poolclass=pool.NullPool,
     )
 
@@ -59,8 +60,6 @@ def run_migrations_online() -> None:
 
         with context.begin_transaction():
             context.run_migrations()
-
-
 # ================= ENTRY =================
 
 if context.is_offline_mode():

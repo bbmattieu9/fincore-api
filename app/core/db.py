@@ -1,6 +1,11 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from sqlalchemy import create_engine, MetaData
-from sqlalchemy.engine import URL
+# from sqlalchemy.engine import URL
 from sqlalchemy.orm import sessionmaker, declarative_base
+
+from urllib.parse import quote_plus
 
 from app.core.config import (
     MYSQL_USER,
@@ -15,15 +20,8 @@ if not MYSQL_PASSWORD:
     raise ValueError("Database credentials not set")
 
 # ================= DATABASE URL =================
-
-DATABASE_URL = URL.create(
-    drivername="mysql+pymysql",
-    username=MYSQL_USER,
-    password=MYSQL_PASSWORD,  # raw password (handled safely by SQLAlchemy)
-    host=MYSQL_HOST,
-    port=MYSQL_PORT,
-    database=MYSQL_DATABASE,
-)
+encoded_password = quote_plus(MYSQL_PASSWORD)
+DATABASE_URL = f"mysql+pymysql://{MYSQL_USER}:{encoded_password}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}"
 
 # ================= NAMING CONVENTION (ALEMBIC SAFE) =================
 
@@ -40,9 +38,8 @@ metadata = MetaData(naming_convention=convention)
 # ================= ENGINE =================
 
 engine = create_engine(
-    DATABASE_URL,
-    echo=False,
-    pool_pre_ping=True
+    "mysql+pymysql://root:MyF%40stAPI2026%21@127.0.0.1:3306/fastapi_db",
+    echo=True
 )
 
 # ================= SESSION =================
@@ -65,3 +62,11 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+# print("USER:", MYSQL_USER)
+# print("PASSWORD:", MYSQL_PASSWORD)
+# print("HOST:", MYSQL_HOST)
+# print("PORT:", MYSQL_PORT)
+# print("DB:", MYSQL_DATABASE)
+# print("DATABASE_URL:", DATABASE_URL)
